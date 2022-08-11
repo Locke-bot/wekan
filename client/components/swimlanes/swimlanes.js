@@ -9,11 +9,11 @@ function currentListIsInThisSwimlane(swimlaneId) {
 }
 
 function currentCardIsInThisList(listId, swimlaneId) {
-  const currentCard = Cards.findOne(Session.get('currentCard'));
-  const currentUser = Meteor.user();
+  const currentCard = Utils.getCurrentCard();
+  //const currentUser = Meteor.user();
   if (
-    currentUser &&
-    currentUser.profile &&
+    //currentUser &&
+    //currentUser.profile &&
     Utils.boardView() === 'board-view-swimlanes'
   )
     return (
@@ -21,7 +21,15 @@ function currentCardIsInThisList(listId, swimlaneId) {
       currentCard.listId === listId &&
       currentCard.swimlaneId === swimlaneId
     );
-  else return currentCard && currentCard.listId === listId;
+  else if (
+    //currentUser &&
+    //currentUser.profile &&
+    Utils.boardView() === 'board-view-lists'
+  )
+    return (
+      currentCard &&
+      currentCard.listId === listId
+    );
 
   // https://github.com/wekan/wekan/issues/1623
   // https://github.com/ChronikEwok/wekan/commit/cad9b20451bb6149bfb527a99b5001873b06c3de
@@ -54,13 +62,15 @@ function initSortable(boardComponent, $listsDom) {
   };
 
   $listsDom.sortable({
+    connectWith: '.board-canvas',
     tolerance: 'pointer',
     helper: 'clone',
     items: '.js-list:not(.js-list-composer)',
-    placeholder: 'list placeholder',
+    placeholder: 'js-list placeholder',
     distance: 7,
     start(evt, ui) {
       ui.placeholder.height(ui.helper.height());
+      ui.placeholder.width(ui.helper.width());
       EscapeActions.executeUpTo('popup-close');
       boardComponent.setIsDragging(true);
     },
@@ -74,6 +84,15 @@ function initSortable(boardComponent, $listsDom) {
       $listsDom.sortable('cancel');
       const listDomElement = ui.item.get(0);
       const list = Blaze.getData(listDomElement);
+
+/*
+      Reverted incomplete change list width,
+      removed from below Lists.update:
+       https://github.com/wekan/wekan/issues/4558
+          $set: {
+            width: list._id.width(),
+            height: list._id.height(),
+*/
 
       Lists.update(list._id, {
         $set: {
@@ -95,22 +114,11 @@ function initSortable(boardComponent, $listsDom) {
   //}
 
   boardComponent.autorun(() => {
-    let showDesktopDragHandles = false;
-    currentUser = Meteor.user();
-    if (currentUser) {
-      showDesktopDragHandles = (currentUser.profile || {})
-        .showDesktopDragHandles;
-    } else if (window.localStorage.getItem('showDesktopDragHandles')) {
-      showDesktopDragHandles = true;
-    } else {
-      showDesktopDragHandles = false;
-    }
-
-    if (Utils.isMiniScreen() || showDesktopDragHandles) {
+    if (Utils.isMiniScreenOrShowDesktopDragHandles()) {
       $listsDom.sortable({
         handle: '.js-list-handle',
       });
-    } else if (!Utils.isMiniScreen() && !showDesktopDragHandles) {
+    } else {
       $listsDom.sortable({
         handle: '.js-list-header',
       });
@@ -123,7 +131,7 @@ function initSortable(boardComponent, $listsDom) {
         'disabled',
         // Disable drag-dropping when user is not member/is worker
         //!userIsMember() || Meteor.user().isWorker(),
-        !Meteor.user().isBoardAdmin(),
+        !Meteor.user() || !Meteor.user().isBoardAdmin(),
         // Not disable drag-dropping while in multi-selection mode
         // MultiSelection.isActive() || !userIsMember(),
       );
@@ -136,7 +144,7 @@ BlazeComponent.extendComponent({
     const boardComponent = this.parentComponent();
     const $listsDom = this.$('.js-lists');
 
-    if (!Session.get('currentCard')) {
+    if (!Utils.getCurrentCardId()) {
       boardComponent.scrollLeft();
     }
 
@@ -148,19 +156,38 @@ BlazeComponent.extendComponent({
     this._isDragging = false;
     this._lastDragPositionX = 0;
   },
-
   id() {
     return this._id;
   },
-
   currentCardIsInThisList(listId, swimlaneId) {
     return currentCardIsInThisList(listId, swimlaneId);
   },
-
   currentListIsInThisSwimlane(swimlaneId) {
     return currentListIsInThisSwimlane(swimlaneId);
   },
-
+  visible(list) {
+    if (list.archived) {
+      // Show archived list only when filter archive is on
+      if (!Filter.archive.isSelected()) {
+        return false;
+      }
+    }
+    if (Filter.lists._isActive()) {
+      if (!list.title.match(Filter.lists.getRegexSelector())) {
+        return false;
+      }
+    }
+    if (Filter.hideEmpty.isSelected()) {
+      const swimlaneId = this.parentComponent()
+        .parentComponent()
+        .data()._id;
+      const cards = list.cards(swimlaneId);
+      if (cards.count() === 0) {
+        return false;
+      }
+    }
+    return true;
+  },
   events() {
     return [
       {
@@ -172,19 +199,8 @@ BlazeComponent.extendComponent({
           // the user will legitimately expect to be able to select some text with
           // his mouse.
 
-          let showDesktopDragHandles = false;
-          currentUser = Meteor.user();
-          if (currentUser) {
-            showDesktopDragHandles = (currentUser.profile || {})
-              .showDesktopDragHandles;
-          } else if (window.localStorage.getItem('showDesktopDragHandles')) {
-            showDesktopDragHandles = true;
-          } else {
-            showDesktopDragHandles = false;
-          }
-
           const noDragInside = ['a', 'input', 'textarea', 'p'].concat(
-            Utils.isMiniScreen() || showDesktopDragHandles
+            Utils.isMiniScreenOrShowDesktopDragHandles()
               ? ['.js-list-handle', '.js-swimlane-header-handle']
               : ['.js-list-header'],
           );
@@ -240,13 +256,15 @@ BlazeComponent.extendComponent({
       {
         submit(evt) {
           evt.preventDefault();
+          const lastList = this.currentBoard.getLastList();
+          const sortIndex = Utils.calculateIndexData(lastList, null).base;
           const titleInput = this.find('.list-name-input');
           const title = titleInput.value.trim();
           if (title) {
             Lists.insert({
               title,
               boardId: Session.get('currentBoard'),
-              sort: $('.list').length,
+              sort: sortIndex,
               type: this.isListTemplatesSwimlane ? 'template-list' : 'list',
               swimlaneId: this.currentBoard.isTemplatesBoard()
                 ? this.currentSwimlane._id
@@ -264,16 +282,6 @@ BlazeComponent.extendComponent({
 }).register('addListForm');
 
 Template.swimlane.helpers({
-  showDesktopDragHandles() {
-    currentUser = Meteor.user();
-    if (currentUser) {
-      return (currentUser.profile || {}).showDesktopDragHandles;
-    } else if (window.localStorage.getItem('showDesktopDragHandles')) {
-      return true;
-    } else {
-      return false;
-    }
-  },
   canSeeAddList() {
     return Meteor.user().isBoardAdmin();
     /*
@@ -291,8 +299,8 @@ BlazeComponent.extendComponent({
   },
   visible(list) {
     if (list.archived) {
-      // Show archived list only when filter archive is on or archive is selected
-      if (!(Filter.archive.isSelected() || archivedRequested)) {
+      // Show archived list only when filter archive is on
+      if (!Filter.archive.isSelected()) {
         return false;
       }
     }
@@ -316,7 +324,7 @@ BlazeComponent.extendComponent({
     const boardComponent = this.parentComponent();
     const $listsDom = this.$('.js-lists');
 
-    if (!Session.get('currentCard')) {
+    if (!Utils.getCurrentCardId()) {
       boardComponent.scrollLeft();
     }
 
@@ -359,7 +367,7 @@ class MoveSwimlaneComponent extends BlazeComponent {
             boardId = bSelect.options[bSelect.selectedIndex].value;
             Meteor.call(this.serverMethod, this.currentSwimlane._id, boardId);
           }
-          Popup.close();
+          Popup.back();
         },
       },
     ];

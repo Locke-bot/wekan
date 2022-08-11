@@ -1,5 +1,8 @@
+//var nodemailer = require('nodemailer');
 import { SyncedCron } from 'meteor/percolate:synced-cron';
+import { TAPi18n } from '/imports/i18n';
 import ImpersonatedUsers from './impersonatedUsers';
+import { Index, MongoDBEngine } from 'meteor/easy:search'
 
 // Sandstorm context is detected using the METEOR_SETTINGS environment variable
 // in the package definition.
@@ -164,7 +167,7 @@ Users.attachSchema(
     },
     'profile.showDesktopDragHandles': {
       /**
-       * does the user want to hide system messages?
+       * does the user want to show desktop drag handles?
        */
       type: Boolean,
       optional: true,
@@ -172,6 +175,20 @@ Users.attachSchema(
     'profile.hideCheckedItems': {
       /**
        * does the user want to hide checked checklist items?
+       */
+      type: Boolean,
+      optional: true,
+    },
+    'profile.cardMaximized': {
+      /**
+       * has user clicked maximize card?
+       */
+      type: Boolean,
+      optional: true,
+    },
+    'profile.customFieldsGrid': {
+      /**
+       * has user at card Custom Fields have Grid (false) or one per row (true) layout?
        */
       type: Boolean,
       optional: true,
@@ -211,6 +228,96 @@ Users.attachSchema(
       type: String,
       optional: true,
     },
+    'profile.moveAndCopyDialog' : {
+      /**
+       * move and copy card dialog
+       */
+      type: Object,
+      optional: true,
+      blackbox: true,
+    },
+    'profile.moveAndCopyDialog.$.boardId': {
+      /**
+       * last selected board id
+       */
+      type: String,
+    },
+    'profile.moveAndCopyDialog.$.swimlaneId': {
+      /**
+       * last selected swimlane id
+       */
+      type: String,
+    },
+    'profile.moveAndCopyDialog.$.listId': {
+      /**
+       * last selected list id
+       */
+      type: String,
+    },
+    'profile.moveChecklistDialog' : {
+      /**
+       * move checklist dialog
+       */
+      type: Object,
+      optional: true,
+      blackbox: true,
+    },
+    'profile.moveChecklistDialog.$.boardId': {
+      /**
+       * last selected board id
+       */
+      type: String,
+    },
+    'profile.moveChecklistDialog.$.swimlaneId': {
+      /**
+       * last selected swimlane id
+       */
+      type: String,
+    },
+    'profile.moveChecklistDialog.$.listId': {
+      /**
+       * last selected list id
+       */
+      type: String,
+    },
+    'profile.moveChecklistDialog.$.cardId': {
+      /**
+       * last selected card id
+       */
+      type: String,
+    },
+    'profile.copyChecklistDialog' : {
+      /**
+       * copy checklist dialog
+       */
+      type: Object,
+      optional: true,
+      blackbox: true,
+    },
+    'profile.copyChecklistDialog.$.boardId': {
+      /**
+       * last selected board id
+       */
+      type: String,
+    },
+    'profile.copyChecklistDialog.$.swimlaneId': {
+      /**
+       * last selected swimlane id
+       */
+      type: String,
+    },
+    'profile.copyChecklistDialog.$.listId': {
+      /**
+       * last selected list id
+       */
+      type: String,
+    },
+    'profile.copyChecklistDialog.$.cardId': {
+      /**
+       * last selected card id
+       */
+      type: String,
+    },
     'profile.notifications': {
       /**
        * enabled notifications for the user
@@ -229,6 +336,13 @@ Users.attachSchema(
        * the date on which this notification was read
        */
       type: Date,
+      optional: true,
+    },
+    'profile.rescueCardDescription': {
+      /**
+       * show dialog for saving card description on unintentional card closing
+       */
+      type: Boolean,
       optional: true,
     },
     'profile.showCardsCountAt': {
@@ -421,12 +535,13 @@ Users.allow({
   fetch: [],
 });
 
-// Search a user in the complete server database by its name or username. This
+// Search a user in the complete server database by its name, username or emails adress. This
 // is used for instance to add a new user to a board.
-const searchInFields = ['username', 'profile.fullname'];
-Users.initEasySearch(searchInFields, {
-  use: 'mongo-db',
-  returnFields: [...searchInFields, 'profile.avatarUrl'],
+const searchInFields = ['username', 'profile.fullname', 'emails.address'];
+Users.search_index = new Index({
+  collection: Users,
+  fields: searchInFields,
+  engine: new MongoDBEngine(),
 });
 
 Users.safeFields = {
@@ -435,51 +550,59 @@ Users.safeFields = {
   'profile.fullname': 1,
   'profile.avatarUrl': 1,
   'profile.initials': 1,
+  orgs: 1,
+  teams: 1,
+  authenticationMethod: 1,
 };
 
 if (Meteor.isClient) {
   Users.helpers({
     isBoardMember() {
-      const board = Boards.findOne(Session.get('currentBoard'));
+      const board = Utils.getCurrentBoard();
       return board && board.hasMember(this._id);
     },
 
     isNotNoComments() {
-      const board = Boards.findOne(Session.get('currentBoard'));
+      const board = Utils.getCurrentBoard();
       return (
         board && board.hasMember(this._id) && !board.hasNoComments(this._id)
       );
     },
 
     isNoComments() {
-      const board = Boards.findOne(Session.get('currentBoard'));
+      const board = Utils.getCurrentBoard();
       return board && board.hasNoComments(this._id);
     },
 
     isNotCommentOnly() {
-      const board = Boards.findOne(Session.get('currentBoard'));
+      const board = Utils.getCurrentBoard();
       return (
         board && board.hasMember(this._id) && !board.hasCommentOnly(this._id)
       );
     },
 
     isCommentOnly() {
-      const board = Boards.findOne(Session.get('currentBoard'));
+      const board = Utils.getCurrentBoard();
       return board && board.hasCommentOnly(this._id);
     },
 
     isNotWorker() {
-      const board = Boards.findOne(Session.get('currentBoard'));
+      const board = Utils.getCurrentBoard();
       return board && board.hasMember(this._id) && !board.hasWorker(this._id);
     },
 
     isWorker() {
-      const board = Boards.findOne(Session.get('currentBoard'));
+      const board = Utils.getCurrentBoard();
       return board && board.hasWorker(this._id);
     },
 
-    isBoardAdmin(boardId = Session.get('currentBoard')) {
-      const board = Boards.findOne(boardId);
+    isBoardAdmin(boardId) {
+      let board;
+      if (boardId) {
+        board = Boards.findOne(boardId);
+      } else {
+        board = Utils.getCurrentBoard();
+      }
       return board && board.hasAdmin(this._id);
     },
   });
@@ -496,9 +619,23 @@ Users.helpers({
     }
     return '';
   },
+  teamIds() {
+    if (this.teams) {
+      // TODO: Should the Team collection be queried to determine if the team isActive?
+      return this.teams.map(team => { return team.teamId });
+    }
+    return [];
+  },
+  orgIds() {
+    if (this.orgs) {
+      // TODO: Should the Org collection be queried to determine if the organization isActive?
+      return this.orgs.map(org => { return org.orgId });
+    }
+    return [];
+  },
   orgsUserBelongs() {
     if (this.orgs) {
-      return this.orgs.map(function(org){return org.orgDisplayName}).join(',');
+      return this.orgs.map(function(org){return org.orgDisplayName}).sort().join(',');
     }
     return '';
   },
@@ -510,7 +647,7 @@ Users.helpers({
   },
   teamsUserBelongs() {
     if (this.teams) {
-      return this.teams.map(function(team){ return team.teamDisplayName}).join(',');
+      return this.teams.map(function(team){ return team.teamDisplayName}).sort().join(',');
     }
     return '';
   },
@@ -521,32 +658,16 @@ Users.helpers({
     return '';
   },
   boards() {
-    return Boards.find(
-      {
-        'members.userId': this._id,
-      },
-      {
-        sort: {
-          sort: 1 /* boards default sorting */,
-        },
-      },
-    );
+    return Boards.userBoards(this._id, null, {}, { sort: { sort: 1 } })
   },
 
   starredBoards() {
     const { starredBoards = [] } = this.profile || {};
-    return Boards.find(
-      {
-        archived: false,
-        _id: {
-          $in: starredBoards,
-        },
-      },
-      {
-        sort: {
-          sort: 1 /* boards default sorting */,
-        },
-      },
+    return Boards.userBoards(
+      this._id,
+      false,
+      { _id: { $in: starredBoards } },
+      { sort: { sort: 1 } }
     );
   },
 
@@ -557,18 +678,11 @@ Users.helpers({
 
   invitedBoards() {
     const { invitedBoards = [] } = this.profile || {};
-    return Boards.find(
-      {
-        archived: false,
-        _id: {
-          $in: invitedBoards,
-        },
-      },
-      {
-        sort: {
-          sort: 1 /* boards default sorting */,
-        },
-      },
+    return Boards.userBoards(
+      this._id,
+      false,
+      { _id: { $in: invitedBoards } },
+      { sort: { sort: 1 } }
     );
   },
 
@@ -600,6 +714,39 @@ Users.helpers({
   },
   getListSortByDirection() {
     return this._getListSortBy()[1];
+  },
+
+  /** returns all confirmed move and copy dialog field values
+   * <li> the board, swimlane and list id is stored for each board
+   */
+  getMoveAndCopyDialogOptions() {
+    let _ret = {}
+    if (this.profile && this.profile.moveAndCopyDialog) {
+      _ret = this.profile.moveAndCopyDialog;
+    }
+    return _ret;
+  },
+
+  /** returns all confirmed move checklist dialog field values
+   * <li> the board, swimlane, list and card id is stored for each board
+   */
+  getMoveChecklistDialogOptions() {
+    let _ret = {}
+    if (this.profile && this.profile.moveChecklistDialog) {
+      _ret = this.profile.moveChecklistDialog;
+    }
+    return _ret;
+  },
+
+  /** returns all confirmed copy checklist dialog field values
+   * <li> the board, swimlane, list and card id is stored for each board
+   */
+  getCopyChecklistDialogOptions() {
+    let _ret = {}
+    if (this.profile && this.profile.copyChecklistDialog) {
+      _ret = this.profile.copyChecklistDialog;
+    }
+    return _ret;
   },
 
   hasTag(tag) {
@@ -641,9 +788,24 @@ Users.helpers({
     return profile.hiddenSystemMessages || false;
   },
 
+  hasCustomFieldsGrid() {
+    const profile = this.profile || {};
+    return profile.customFieldsGrid || false;
+  },
+
+  hasCardMaximized() {
+    const profile = this.profile || {};
+    return profile.cardMaximized || false;
+  },
+
   hasHiddenMinicardLabelText() {
     const profile = this.profile || {};
     return profile.hiddenMinicardLabelText || false;
+  },
+
+  hasRescuedCardDescription(){
+    const profile = this.profile || {};
+    return profile.rescueCardDescription || false;
   },
 
   getEmailBuffer() {
@@ -695,7 +857,8 @@ Users.helpers({
   },
 
   getTemplatesBoardSlug() {
-    return (Boards.findOne((this.profile || {}).templatesBoardId) || {}).slug;
+    //return (Boards.findOne((this.profile || {}).templatesBoardId) || {}).slug;
+    return 'templates';
   },
 
   remove() {
@@ -706,6 +869,45 @@ Users.helpers({
 });
 
 Users.mutations({
+  /** set the confirmed board id/swimlane id/list id of a board
+   * @param boardId the current board id
+   * @param options an object with the confirmed field values
+   */
+  setMoveAndCopyDialogOption(boardId, options) {
+    let currentOptions = this.getMoveAndCopyDialogOptions();
+    currentOptions[boardId] = options;
+    return {
+      $set: {
+        'profile.moveAndCopyDialog': currentOptions,
+      },
+    };
+  },
+  /** set the confirmed board id/swimlane id/list id/card id of a board (move checklist)
+   * @param boardId the current board id
+   * @param options an object with the confirmed field values
+   */
+  setMoveChecklistDialogOption(boardId, options) {
+    let currentOptions = this.getMoveChecklistDialogOptions();
+    currentOptions[boardId] = options;
+    return {
+      $set: {
+        'profile.moveChecklistDialog': currentOptions,
+      },
+    };
+  },
+  /** set the confirmed board id/swimlane id/list id/card id of a board (copy checklist)
+   * @param boardId the current board id
+   * @param options an object with the confirmed field values
+   */
+  setCopyChecklistDialogOption(boardId, options) {
+    let currentOptions = this.getCopyChecklistDialogOptions();
+    currentOptions[boardId] = options;
+    return {
+      $set: {
+        'profile.copyChecklistDialog': currentOptions,
+      },
+    };
+  },
   toggleBoardStar(boardId) {
     const queryKind = this.hasStarred(boardId) ? '$pull' : '$addToSet';
     return {
@@ -793,10 +995,33 @@ Users.mutations({
     };
   },
 
+  toggleFieldsGrid(value = false) {
+    return {
+      $set: {
+        'profile.customFieldsGrid': !value,
+      },
+    };
+  },
+
+  toggleCardMaximized(value = false) {
+    return {
+      $set: {
+        'profile.cardMaximized': !value,
+      },
+    };
+  },
+
   toggleLabelText(value = false) {
     return {
       $set: {
         'profile.hiddenMinicardLabelText': !value,
+      },
+    };
+  },
+  toggleRescueCardDescription(value = false) {
+    return {
+      $set: {
+        'profile.rescueCardDescription': !value,
       },
     };
   },
@@ -887,9 +1112,21 @@ Meteor.methods({
     const user = Meteor.user();
     user.toggleSystem(user.hasHiddenSystemMessages());
   },
+  toggleCustomFieldsGrid() {
+    const user = Meteor.user();
+    user.toggleFieldsGrid(user.hasCustomFieldsGrid());
+  },
+  toggleCardMaximized() {
+    const user = Meteor.user();
+    user.toggleCardMaximized(user.hasCardMaximized());
+  },
   toggleMinicardLabelText() {
     const user = Meteor.user();
     user.toggleLabelText(user.hasHiddenMinicardLabelText());
+  },
+  toggleRescueCardDescription() {
+    const user = Meteor.user();
+    user.toggleRescueCardDescription(user.hasRescuedCardDescription());
   },
   changeLimitToShowCardsCount(limit) {
     check(limit, Number);
@@ -1185,13 +1422,40 @@ if (Meteor.isServer) {
       }
 
       try {
+        const fullName = inviter.profile !== undefined && inviter.profile.fullname !== undefined ?  inviter.profile.fullname : "";
+        const userFullName = user.profile !== undefined && user.profile.fullname !== undefined ?  user.profile.fullname : "";
         const params = {
-          user: user.username,
-          inviter: inviter.username,
+          user: userFullName != "" ? userFullName + " (" + user.username + " )" : user.username,
+          inviter: fullName != "" ? fullName + " (" + inviter.username + " )" : inviter.username,
           board: board.title,
           url: board.absoluteUrl(),
         };
         const lang = user.getLanguage();
+
+/*
+        if (process.env.MAIL_SERVICE !== '') {
+          let transporter = nodemailer.createTransport({
+            service: process.env.MAIL_SERVICE,
+            auth: {
+              user: process.env.MAIL_SERVICE_USER,
+              pass: process.env.MAIL_SERVICE_PASSWORD
+            },
+          })
+          let info = transporter.sendMail({
+            to: user.emails[0].address.toLowerCase(),
+            from: Accounts.emailTemplates.from,
+            subject: TAPi18n.__('email-invite-subject', params, lang),
+            text: TAPi18n.__('email-invite-text', params, lang),
+          })
+        } else {
+          Email.send({
+            to: user.emails[0].address.toLowerCase(),
+            from: Accounts.emailTemplates.from,
+            subject: TAPi18n.__('email-invite-subject', params, lang),
+            text: TAPi18n.__('email-invite-text', params, lang),
+          });
+        }
+*/
         Email.send({
           to: user.emails[0].address.toLowerCase(),
           from: Accounts.emailTemplates.from,
@@ -1224,12 +1488,55 @@ if (Meteor.isServer) {
       });
       return isImpersonated;
     },
+    setUsersTeamsTeamDisplayName(teamId, teamDisplayName) {
+      check(teamId, String);
+      check(teamDisplayName, String);
+      if (Meteor.user() && Meteor.user().isAdmin) {
+        Users.find({
+          teams: {
+              $elemMatch: {teamId: teamId}
+          }
+        }).forEach(user => {
+          Users.update({
+            _id: user._id,
+            teams: {
+              $elemMatch: {teamId: teamId}
+            }
+          }, {
+            $set: {
+              'teams.$.teamDisplayName': teamDisplayName
+            }
+          });
+        });
+      }
+    },
+    setUsersOrgsOrgDisplayName(orgId, orgDisplayName) {
+      check(orgId, String);
+      check(orgDisplayName, String);
+      if (Meteor.user() && Meteor.user().isAdmin) {
+        Users.find({
+          orgs: {
+              $elemMatch: {orgId: orgId}
+          }
+        }).forEach(user => {
+          Users.update({
+            _id: user._id,
+            orgs: {
+              $elemMatch: {orgId: orgId}
+            }
+          }, {
+            $set: {
+              'orgs.$.orgDisplayName': orgDisplayName
+            }
+          });
+        });
+      }
+    },
   });
   Accounts.onCreateUser((options, user) => {
     const userCount = Users.find().count();
     if (userCount === 0) {
       user.isAdmin = true;
-      return user;
     }
 
     if (user.services.oidc) {
@@ -1379,12 +1686,13 @@ if (Meteor.isServer) {
   // Let mongoDB ensure username unicity
   Meteor.startup(() => {
     allowedSortValues.forEach((value) => {
-      Lists._collection._ensureIndex(value);
+      Lists._collection.createIndex(value);
     });
-    Users._collection._ensureIndex({
+    Users._collection.createIndex({
       modifiedAt: -1,
     });
-    Users._collection._ensureIndex(
+/* Commented out extra index because of IndexOptionsConflict.
+    Users._collection.createIndex(
       {
         username: 1,
       },
@@ -1392,6 +1700,7 @@ if (Meteor.isServer) {
         unique: true,
       },
     );
+*/
     Meteor.defer(() => {
       addCronJob();
     });
@@ -1466,24 +1775,26 @@ if (Meteor.isServer) {
 
       fakeUserId.withValue(doc._id, () => {
         /*
-                // Insert the Welcome Board
-                Boards.insert({
-                  title: TAPi18n.__('welcome-board'),
-                  permission: 'private',
-                }, fakeUser, (err, boardId) => {
 
-                  Swimlanes.insert({
-                    title: TAPi18n.__('welcome-swimlane'),
-                    boardId,
-                    sort: 1,
-                  }, fakeUser);
+        // Insert the Welcome Board
+        Boards.insert({
+          title: TAPi18n.__('welcome-board'),
+          permission: 'private',
+        }, fakeUser, (err, boardId) => {
 
-                  ['welcome-list1', 'welcome-list2'].forEach((title, titleIndex) => {
-                    Lists.insert({title: TAPi18n.__(title), boardId, sort: titleIndex}, fakeUser);
-                  });
-                });
-                */
+          Swimlanes.insert({
+            title: TAPi18n.__('welcome-swimlane'),
+            boardId,
+            sort: 1,
+          }, fakeUser);
 
+          ['welcome-list1', 'welcome-list2'].forEach((title, titleIndex) => {
+            Lists.insert({title: TAPi18n.__(title), boardId, sort: titleIndex}, fakeUser);
+          });
+        });
+        */
+
+        // Insert Template Container
         const Future = require('fibers/future');
         const future1 = new Future();
         const future2 = new Future();
@@ -1568,6 +1879,7 @@ if (Meteor.isServer) {
         future1.wait();
         future2.wait();
         future3.wait();
+        // End of Insert Template Container
       });
     });
   }
@@ -1597,10 +1909,20 @@ if (Meteor.isServer) {
     // If ldap, bypass the inviation code if the self registration isn't allowed.
     // TODO : pay attention if ldap field in the user model change to another content ex : ldap field to connection_type
     if (doc.authenticationMethod !== 'ldap' && disableRegistration) {
-      const invitationCode = InvitationCodes.findOne({
-        code: doc.profile.icode,
-        valid: true,
-      });
+      let invitationCode = null;
+      if(doc.authenticationMethod.toLowerCase() == 'oauth2')
+      { // OIDC authentication mode
+        invitationCode = InvitationCodes.findOne({
+          email: doc.emails[0].address.toLowerCase(),
+          valid: true,
+        });
+      }
+      else{
+        invitationCode = InvitationCodes.findOne({
+          code: doc.profile.icode,
+          valid: true,
+        });
+      }
       if (!invitationCode) {
         throw new Meteor.Error('error-invitation-code-not-exist');
       } else {
@@ -2038,16 +2360,18 @@ if (Meteor.isServer) {
     try {
       Authentication.checkUserId(req.userId);
       const id = req.params.userId;
-      // Delete is not enabled yet, because it does leave empty user avatars
+      // Delete user is enabled, but is still has bug of leaving empty user avatars
       // to boards: boards members, card members and assignees have
-      // empty users. See:
+      // empty users. So it would be better to delete user from all boards before
+      // deleting user.
+      // See:
       // - wekan/client/components/settings/peopleBody.jade deleteButton
       // - wekan/client/components/settings/peopleBody.js deleteButton
       // - wekan/client/components/sidebar/sidebar.js Popup.afterConfirm('removeMember'
       //   that does now remove member from board, card members and assignees correctly,
       //   but that should be used to remove user from all boards similarly
       // - wekan/models/users.js Delete is not enabled
-      // Meteor.users.remove({ _id: id });
+      Meteor.users.remove({ _id: id });
       JsonRoutes.sendResult(res, {
         code: 200,
         data: {

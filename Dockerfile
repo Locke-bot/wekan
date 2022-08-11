@@ -1,8 +1,12 @@
-FROM quay.io/wekan/ubuntu:groovy-20210115
+FROM ubuntu:22.04
 LABEL maintainer="wekan"
 
-# 2020-12-03:
-# - Above Ubuntu base image copied from Docker Hub ubuntu:groovy-20201125.2
+# 2022-04-25:
+# - gyp does not yet work with Ubuntu 22.04 ubuntu:rolling,
+#   so changing to 21.10. https://github.com/wekan/wekan/issues/4488
+
+# 2021-09-18:
+# - Above Ubuntu base image copied from Docker Hub ubuntu:hirsute-20210825
 #   to Quay to avoid Docker Hub rate limits.
 
 # Set the environment variables (defaults where required)
@@ -12,7 +16,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 ENV BUILD_DEPS="apt-utils libarchive-tools gnupg gosu wget curl bzip2 g++ build-essential git ca-certificates python3" \
     DEBUG=false \
-    NODE_VERSION=v12.22.1 \
+    NODE_VERSION=v14.20.0 \
     METEOR_RELEASE=1.10.2 \
     USE_EDGE=false \
     METEOR_EDGE=1.5-beta.17 \
@@ -28,9 +32,11 @@ ENV BUILD_DEPS="apt-utils libarchive-tools gnupg gosu wget curl bzip2 g++ build-
     ACCOUNTS_LOCKOUT_UNKNOWN_USERS_FAILURES_BERORE=3 \
     ACCOUNTS_LOCKOUT_UNKNOWN_USERS_LOCKOUT_PERIOD=60 \
     ACCOUNTS_LOCKOUT_UNKNOWN_USERS_FAILURE_WINDOW=15 \
+    ACCOUNTS_COMMON_LOGIN_EXPIRATION_IN_DAYS=90 \
+    ATTACHMENTS_UPLOAD_MIME_TYPES="" \
+    ATTACHMENTS_UPLOAD_MAX_SIZE=0 \
     RICHER_CARD_COMMENT_EDITOR=false \
     CARD_OPENED_WEBHOOK_ENABLED=false \
-    ATTACHMENTS_STORE_PATH="" \
     MAX_IMAGE_PIXEL="" \
     IMAGE_COMPRESS_RATIO="" \
     NOTIFICATION_TRAY_AFTER_READ_DAYS_BEFORE_REMOVE="" \
@@ -46,6 +52,7 @@ ENV BUILD_DEPS="apt-utils libarchive-tools gnupg gosu wget curl bzip2 g++ build-
     TRUSTED_URL="" \
     WEBHOOKS_ATTRIBUTES="" \
     OAUTH2_ENABLED=false \
+    OIDC_REDIRECTION_ENABLED=false \
     OAUTH2_CA_CERT="" \
     OAUTH2_ADFS_ENABLED=false \
     OAUTH2_LOGIN_STYLE=redirect \
@@ -64,6 +71,9 @@ ENV BUILD_DEPS="apt-utils libarchive-tools gnupg gosu wget curl bzip2 g++ build-
     LDAP_ENABLE=false \
     LDAP_PORT=389 \
     LDAP_HOST="" \
+    LDAP_AD_SIMPLE_AUTH="" \
+    LDAP_USER_AUTHENTICATION=false \
+    LDAP_USER_AUTHENTICATION_FIELD=uid \
     LDAP_BASEDN="" \
     LDAP_LOGIN_FALLBACK=false \
     LDAP_RECONNECT=true \
@@ -81,8 +91,6 @@ ENV BUILD_DEPS="apt-utils libarchive-tools gnupg gosu wget curl bzip2 g++ build-
     LDAP_ENCRYPTION=false \
     LDAP_CA_CERT="" \
     LDAP_REJECT_UNAUTHORIZED=false \
-    LDAP_USER_AUTHENTICATION=false \
-    LDAP_USER_AUTHENTICATION_FIELD=uid \
     LDAP_USER_SEARCH_FILTER="" \
     LDAP_USER_SEARCH_SCOPE="" \
     LDAP_USER_SEARCH_FIELD="" \
@@ -138,7 +146,21 @@ ENV BUILD_DEPS="apt-utils libarchive-tools gnupg gosu wget curl bzip2 g++ build-
     SAML_LOCAL_PROFILE_MATCH_ATTRIBUTE="" \
     SAML_ATTRIBUTES="" \
     ORACLE_OIM_ENABLED=false \
-    WAIT_SPINNER=""
+    WAIT_SPINNER="" \
+    NODE_OPTIONS="--max_old_space_size=4096" \
+    WRITABLE_PATH=/data
+
+#---------------------------------------------
+# == at docker-compose.yml: AUTOLOGIN WITH OIDC/OAUTH2 ====
+# https://github.com/wekan/wekan/wiki/autologin
+#- OIDC_REDIRECTION_ENABLED=true
+#---------------------------------------------------------------------
+# https://github.com/wekan/wekan/issues/3585#issuecomment-1021522132
+# Add more Node heap:
+#   NODE_OPTIONS="--max_old_space_size=4096"
+# Add more stack:
+#   bash -c "ulimit -s 65500; exec node --stack-size=65500 main.js"
+#---------------------------------------------------------------------
 
 # Copy the app to the image
 COPY ${SRC_PATH} /home/wekan/app
@@ -206,7 +228,7 @@ RUN \
     mv node-${NODE_VERSION}-${ARCHITECTURE} /opt/nodejs && \
     ln -s /opt/nodejs/bin/node /usr/bin/node && \
     ln -s /opt/nodejs/bin/npm /usr/bin/npm && \
-    mkdir -p /opt/nodejs/lib/node_modules/fibers/.node-gyp /root/.node-gyp/8.16.1 /home/wekan/.config && \
+    mkdir -p /opt/nodejs/lib/node_modules/fibers/.node-gyp /root/.node-gyp/${NODE_VERSION} /home/wekan/.config && \
     chown wekan --recursive /home/wekan/.config && \
     \
     #DOES NOT WORK: paxctl fix for alpine linux: https://github.com/wekan/wekan/issues/1303
@@ -279,9 +301,7 @@ RUN \
     chmod u+w *.json && \
     gosu wekan:wekan npm install && \
     gosu wekan:wekan /home/wekan/.meteor/meteor build --directory /home/wekan/app_build && \
-    #cp /home/wekan/app/fix-download-unicode/cfs_access-point.txt /home/wekan/app_build/bundle/programs/server/packages/cfs_access-point.js && \
     #rm /home/wekan/app_build/bundle/programs/server/npm/node_modules/meteor/rajit_bootstrap3-datepicker/lib/bootstrap-datepicker/node_modules/phantomjs-prebuilt/lib/phantom/bin/phantomjs && \
-    #chown wekan /home/wekan/app_build/bundle/programs/server/packages/cfs_access-point.js && \
     #Removed binary version of bcrypt because of security vulnerability that is not fixed yet.
     #https://github.com/wekan/wekan/commit/4b2010213907c61b0e0482ab55abb06f6a668eac
     #https://github.com/wekan/wekan/commit/7eeabf14be3c63fae2226e561ef8a0c1390c8d3c
@@ -296,6 +316,9 @@ RUN \
     cd /home/wekan/app_build/bundle/programs/server/ && \
     chmod u+w *.json && \
     gosu wekan:wekan npm install && \
+    cd node_modules/fibers && \
+    node build.js && \
+    cd ../.. && \
     #gosu wekan:wekan npm install bcrypt && \
     # Remove legacy webbroser bundle, so that Wekan works also at Android Firefox, iOS Safari, etc.
     rm -rf /home/wekan/app_build/bundle/programs/web.browser.legacy && \
@@ -308,10 +331,13 @@ RUN \
     apt-get remove --purge -y ${BUILD_DEPS} && \
     apt-get autoremove -y && \
     npm uninstall -g api2html &&\
+    rm -R /tmp/* && \
     rm -R /var/lib/apt/lists/* && \
     rm -R /home/wekan/.meteor && \
     rm -R /home/wekan/app && \
-    rm -R /home/wekan/app_build
+    rm -R /home/wekan/app_build && \
+    mkdir /data && \
+    chown wekan --recursive /data
     #cat /home/wekan/python/esprima-python/files.txt | xargs rm -R && \
     #rm -R /home/wekan/python
     #rm /home/wekan/install_meteor.sh
@@ -320,4 +346,14 @@ ENV PORT=8080
 EXPOSE $PORT
 USER wekan
 
-CMD ["node", "/build/main.js"]
+#---------------------------------------------------------------------
+# https://github.com/wekan/wekan/issues/3585#issuecomment-1021522132
+# Add more Node heap:
+#   NODE_OPTIONS="--max_old_space_size=4096"
+# Add more stack:
+#   bash -c "ulimit -s 65500; exec node --stack-size=65500 main.js"
+#---------------------------------------------------------------------
+#
+# CMD ["node", "/build/main.js"]
+
+CMD ["bash", "-c", "ulimit -s 65500; exec node --stack-size=65500 /build/main.js"]

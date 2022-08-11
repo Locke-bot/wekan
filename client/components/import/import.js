@@ -87,8 +87,13 @@ BlazeComponent.extendComponent({
         if (err) {
           this.setError(err.error);
         } else {
+          let title = getSlug(this.importedData.get().title) || 'imported-board';
           Session.set('fromBoard', null);
-          Utils.goBoardId(res);
+          FlowRouter.go('board', {
+            id: res,
+            slug: title,
+          })
+          //Utils.goBoardId(res);
         }
       },
     );
@@ -292,7 +297,7 @@ BlazeComponent.extendComponent({
   },
 
   onSelectUser() {
-    Popup.getOpenerComponent().mapSelectedMember(this.currentData()._id);
+    Popup.getOpenerComponent(5).mapSelectedMember(this.currentData().__originalId);
     Popup.back();
   },
 
@@ -304,3 +309,7 @@ BlazeComponent.extendComponent({
     ];
   },
 }).register('importMapMembersAddPopup');
+
+Template.importMapMembersAddPopup.helpers({
+  searchIndex: () => Users.search_index,
+})

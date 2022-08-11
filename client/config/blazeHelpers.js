@@ -1,19 +1,15 @@
+import { Blaze } from 'meteor/blaze';
+import { Session } from 'meteor/session';
+import moment from 'moment/min/moment-with-locales';
+
 Blaze.registerHelper('currentBoard', () => {
-  const boardId = Session.get('currentBoard');
-  if (boardId) {
-    return Boards.findOne(boardId);
-  } else {
-    return null;
-  }
+  const ret = Utils.getCurrentBoard();
+  return ret;
 });
 
 Blaze.registerHelper('currentCard', () => {
-  const cardId = Session.get('currentCard');
-  if (cardId) {
-    return Cards.findOne(cardId);
-  } else {
-    return null;
-  }
+  const ret = Utils.getCurrentCard();
+  return ret;
 });
 
 Blaze.registerHelper('currentList', () => {
@@ -38,3 +34,9 @@ Blaze.registerHelper('isShowDesktopDragHandles', () =>
 Blaze.registerHelper('isMiniScreenOrShowDesktopDragHandles', () =>
   Utils.isMiniScreenOrShowDesktopDragHandles(),
 );
+
+Blaze.registerHelper('moment', (...args) => {
+  args.pop(); // hash
+  const [date, format] = args;
+  return moment(date).format(format);
+});

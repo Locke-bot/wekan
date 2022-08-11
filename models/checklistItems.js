@@ -213,9 +213,9 @@ function publishChekListUncompleted(userId, doc) {
 // Activities
 if (Meteor.isServer) {
   Meteor.startup(() => {
-    ChecklistItems._collection._ensureIndex({ modifiedAt: -1 });
-    ChecklistItems._collection._ensureIndex({ checklistId: 1 });
-    ChecklistItems._collection._ensureIndex({ cardId: 1 });
+    ChecklistItems._collection.createIndex({ modifiedAt: -1 });
+    ChecklistItems._collection.createIndex({ checklistId: 1 });
+    ChecklistItems._collection.createIndex({ cardId: 1 });
   });
 
   ChecklistItems.after.update((userId, doc, fieldNames) => {
@@ -266,6 +266,7 @@ if (Meteor.isServer) {
     '/api/boards/:boardId/cards/:cardId/checklists/:checklistId/items/:itemId',
     function(req, res) {
       Authentication.checkUserId(req.userId);
+      const paramBoardId = req.params.boardId;
       const paramItemId = req.params.itemId;
       const checklistItem = ChecklistItems.findOne({ _id: paramItemId });
       if (checklistItem) {
@@ -299,7 +300,7 @@ if (Meteor.isServer) {
     '/api/boards/:boardId/cards/:cardId/checklists/:checklistId/items/:itemId',
     function(req, res) {
       Authentication.checkUserId(req.userId);
-
+      const paramBoardId = req.params.boardId;
       const paramItemId = req.params.itemId;
 
       function isTrue(data) {
@@ -350,6 +351,7 @@ if (Meteor.isServer) {
     '/api/boards/:boardId/cards/:cardId/checklists/:checklistId/items/:itemId',
     function(req, res) {
       Authentication.checkUserId(req.userId);
+      const paramBoardId = req.params.boardId;
       const paramItemId = req.params.itemId;
       ChecklistItems.direct.remove({ _id: paramItemId });
       JsonRoutes.sendResult(res, {

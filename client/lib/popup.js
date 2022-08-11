@@ -1,3 +1,5 @@
+import { TAPi18n } from '/imports/i18n';
+
 window.Popup = new (class {
   constructor() {
     // The template we use to render popups
@@ -30,7 +32,11 @@ window.Popup = new (class {
     function clickFromPopup(evt) {
       return $(evt.target).closest('.js-pop-over').length !== 0;
     }
-    return function(evt) {
+    /** opens the popup
+     * @param evt the current event
+     * @param options options (dataContextIfCurrentDataIsUndefined use this dataContext if this.currentData() is undefined)
+     */
+    return function(evt, options) {
       // If a popup is already opened, clicking again on the opener element
       // should close it -- and interrupt the current `open` function.
       if (self.isOpen()) {
@@ -67,7 +73,7 @@ window.Popup = new (class {
         title: self._getTitle(popupName),
         depth: self._stack.length,
         offset: self._getOffset(openerElement),
-        dataContext: (this && this.currentData && this.currentData()) || this,
+        dataContext: (this && this.currentData && this.currentData()) || (options && options.dataContextIfCurrentDataIsUndefined) || this,
       });
 
       // If there are no popup currently opened we use the Blaze API to render
@@ -143,12 +149,12 @@ window.Popup = new (class {
     }
   }
 
-  getOpenerComponent() {
-    const { openerElement } = Template.parentData(4);
+  getOpenerComponent(n=4) {
+    const { openerElement } = Template.parentData(n);
     return BlazeComponent.getComponentForElement(openerElement);
   }
 
-  // An utility fonction that returns the top element of the internal stack
+  // An utility function that returns the top element of the internal stack
   _getTopStack() {
     return this._stack[this._stack.length - 1];
   }
@@ -201,7 +207,7 @@ escapeActions.forEach(actionName => {
     () => Popup[actionName](),
     () => Popup.isOpen(),
     {
-      noClickEscapeOn: '.js-pop-over,.js-open-card-title-popup',
+      noClickEscapeOn: '.js-pop-over,.js-open-card-title-popup,.js-open-inlined-form',
       enabledOnClick: actionName === 'close',
     },
   );

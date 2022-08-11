@@ -79,6 +79,21 @@ Lists.attachSchema(
       // XXX We should probably provide a default
       optional: true,
     },
+    width: {
+      /**
+       * list width, default 270px
+       */
+      type: String,
+      defaultValue: '270px',
+      optional: true,
+    },
+    height: {
+      /**
+       * list height
+       */
+      type: String,
+      optional: true,
+    },
     updatedAt: {
       /**
        * last update of the list
@@ -345,6 +360,17 @@ Lists.mutations({
   },
 });
 
+Lists.userArchivedLists = userId => {
+  return Lists.find({
+    boardId: { $in: Boards.userBoardIds(userId, null) },
+    archived: true,
+  })
+};
+
+Lists.userArchivedListIds = () => {
+  return Lists.userArchivedLists().map(list => { return list._id; });
+};
+
 Lists.archivedLists = () => {
   return Lists.find({ archived: true });
 };
@@ -404,9 +430,9 @@ Lists.hookOptions.after.update = { fetchPrevious: false };
 
 if (Meteor.isServer) {
   Meteor.startup(() => {
-    Lists._collection._ensureIndex({ modifiedAt: -1 });
-    Lists._collection._ensureIndex({ boardId: 1 });
-    Lists._collection._ensureIndex({ archivedAt: -1 });
+    Lists._collection.createIndex({ modifiedAt: -1 });
+    Lists._collection.createIndex({ boardId: 1 });
+    Lists._collection.createIndex({ archivedAt: -1 });
   });
 
   Lists.after.insert((userId, doc) => {
@@ -467,8 +493,8 @@ if (Meteor.isServer) {
    */
   JsonRoutes.add('GET', '/api/boards/:boardId/lists', function(req, res) {
     try {
+      Authentication.checkUserId(req.userId);
       const paramBoardId = req.params.boardId;
-      Authentication.checkBoardAccess(req.userId, paramBoardId);
 
       JsonRoutes.sendResult(res, {
         code: 200,
@@ -502,9 +528,9 @@ if (Meteor.isServer) {
     res,
   ) {
     try {
+      Authentication.checkUserId(req.userId);
       const paramBoardId = req.params.boardId;
       const paramListId = req.params.listId;
-      Authentication.checkBoardAccess(req.userId, paramBoardId);
       JsonRoutes.sendResult(res, {
         code: 200,
         data: Lists.findOne({

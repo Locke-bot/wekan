@@ -220,7 +220,7 @@ Swimlanes.helpers({
       {
         boardId: this.boardId,
         swimlaneId: { $in: [this._id, ''] },
-        archived: false,
+        //archived: false,
       },
       { sort: ['sort'] },
     );
@@ -306,6 +306,17 @@ Swimlanes.mutations({
   },
 });
 
+Swimlanes.userArchivedSwimlanes = userId => {
+  return Swimlanes.find({
+    boardId: { $in: Boards.userBoardIds(userId, null) },
+    archived: true,
+  })
+};
+
+Swimlanes.userArchivedSwimlaneIds = () => {
+  return Swimlanes.userArchivedSwimlanes().map(swim => { return swim._id; });
+};
+
 Swimlanes.archivedSwimlanes = () => {
   return Swimlanes.find({ archived: true });
 };
@@ -320,8 +331,8 @@ Swimlanes.hookOptions.after.update = { fetchPrevious: false };
 
 if (Meteor.isServer) {
   Meteor.startup(() => {
-    Swimlanes._collection._ensureIndex({ modifiedAt: -1 });
-    Swimlanes._collection._ensureIndex({ boardId: 1 });
+    Swimlanes._collection.createIndex({ modifiedAt: -1 });
+    Swimlanes._collection.createIndex({ boardId: 1 });
   });
 
   Swimlanes.after.insert((userId, doc) => {
@@ -388,8 +399,8 @@ if (Meteor.isServer) {
    */
   JsonRoutes.add('GET', '/api/boards/:boardId/swimlanes', function(req, res) {
     try {
+      Authentication.checkUserId(req.userId);
       const paramBoardId = req.params.boardId;
-      Authentication.checkBoardAccess(req.userId, paramBoardId);
 
       JsonRoutes.sendResult(res, {
         code: 200,
@@ -424,9 +435,9 @@ if (Meteor.isServer) {
     res,
   ) {
     try {
+      Authentication.checkUserId(req.userId);
       const paramBoardId = req.params.boardId;
       const paramSwimlaneId = req.params.swimlaneId;
-      Authentication.checkBoardAccess(req.userId, paramBoardId);
       JsonRoutes.sendResult(res, {
         code: 200,
         data: Swimlanes.findOne({

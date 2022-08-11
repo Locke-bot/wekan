@@ -1,5 +1,5 @@
 *~
-*.swp
+*.sw*
 .meteor-spk
 *.sublime-workspace
 tmp/
@@ -33,3 +33,9 @@ ehthumbs.db
 .meteor/local
 .devcontainer/docker-compose.extend.yml
 .devcontainer/volumes*/
+.coverage
+
+# Helm chart
+# Chart dependencies
+/helm/wekan/**/*.tgz
+/helm/wekan/charts

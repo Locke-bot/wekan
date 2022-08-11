@@ -82,19 +82,19 @@ if (Meteor.isServer) {
   // creation in conjunction with the card or board id, as corresponding views
   // are largely used in the App. See #524.
   Meteor.startup(() => {
-    Activities._collection._ensureIndex({ createdAt: -1 });
-    Activities._collection._ensureIndex({ modifiedAt: -1 });
-    Activities._collection._ensureIndex({ cardId: 1, createdAt: -1 });
-    Activities._collection._ensureIndex({ boardId: 1, createdAt: -1 });
-    Activities._collection._ensureIndex(
+    Activities._collection.createIndex({ createdAt: -1 });
+    Activities._collection.createIndex({ modifiedAt: -1 });
+    Activities._collection.createIndex({ cardId: 1, createdAt: -1 });
+    Activities._collection.createIndex({ boardId: 1, createdAt: -1 });
+    Activities._collection.createIndex(
       { commentId: 1 },
       { partialFilterExpression: { commentId: { $exists: true } } },
     );
-    Activities._collection._ensureIndex(
+    Activities._collection.createIndex(
       { attachmentId: 1 },
       { partialFilterExpression: { attachmentId: { $exists: true } } },
     );
-    Activities._collection._ensureIndex(
+    Activities._collection.createIndex(
       { customFieldId: 1 },
       { partialFilterExpression: { customFieldId: { $exists: true } } },
     );
@@ -130,8 +130,12 @@ if (Meteor.isServer) {
       }
     }
     if (activity.boardId) {
-      if (board.title.length > 0) {
-        params.board = board.title;
+      if (board.title) {
+        if (board.title.length > 0) {
+          params.board = board.title;
+        } else {
+          params.board = '';
+        }
       } else {
         params.board = '';
       }
@@ -153,9 +157,13 @@ if (Meteor.isServer) {
     }
     if (activity.listId) {
       const list = activity.list();
-      watchers = _.union(watchers, list.watchers || []);
-      params.list = list.title;
-      params.listId = activity.listId;
+      if (list) {
+        if (list.watchers !== undefined) {
+          watchers = _.union(watchers, list.watchers || []);
+        }
+        params.list = list.title;
+        params.listId = activity.listId;
+      }
     }
     if (activity.oldListId) {
       const oldList = activity.oldList();
@@ -200,7 +208,7 @@ if (Meteor.isServer) {
           }
           return member;
         });
-        const mentionRegex = /\B@(?:(?:"([\w.\s]*)")|([\w.]+))/gi; // including space in username
+        const mentionRegex = /\B@(?:(?:"([\w.\s-]*)")|([\w.-]+))/gi; // including space in username
         let currentMention;
         while ((currentMention = mentionRegex.exec(comment)) !== null) {
           /*eslint no-unused-vars: ["error", { "varsIgnorePattern": "[iI]gnored" }]*/
@@ -210,23 +218,37 @@ if (Meteor.isServer) {
             // ignore commenter mention himself?
             continue;
           }
-          const atUser = _.findWhere(knownUsers, { username });
-          if (!atUser) {
-            continue;
+
+          if (activity.boardId && username === 'board_members') {
+            // mentions all board members
+            const knownUids = knownUsers.map(u => u.userId);
+            watchers = _.union(watchers, [...knownUids]);
+            title = 'act-atUserComment';
+          } else if (activity.cardId && username === 'card_members') {
+            // mentions all card members if assigned
+            const card = activity.card();
+            watchers = _.union(watchers, [...card.members]);
+            title = 'act-atUserComment';
+          } else {
+            const atUser = _.findWhere(knownUsers, { username });
+            if (!atUser) {
+              continue;
+            }
+
+            const uid = atUser.userId;
+            params.atUsername = username;
+            params.atEmails = atUser.emails;
+            title = 'act-atUserComment';
+            watchers = _.union(watchers, [uid]);
           }
-          const uid = atUser.userId;
-          params.atUsername = username;
-          params.atEmails = atUser.emails;
-          title = 'act-atUserComment';
-          watchers = _.union(watchers, [uid]);
+
         }
       }
       params.commentId = comment._id;
     }
     if (activity.attachmentId) {
-      const attachment = activity.attachment();
-      params.attachment = attachment.original.name;
-      params.attachmentId = attachment._id;
+      params.attachment = activity.attachmentName;
+      params.attachmentId = activity.attachmentId;
     }
     if (activity.checklistId) {
       const checklist = activity.checklist();

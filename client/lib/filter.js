@@ -1,3 +1,5 @@
+import moment from 'moment/min/moment-with-locales';
+
 // Filtered view manager
 // We define local filter objects for each different type of field (SetFilter,
 // RangeFilter, dateFilter, etc.). We then define a global `Filter` object whose
@@ -152,6 +154,39 @@ class DateFilter {
   _getEmptySelector() {
     this._dep.depend();
     return null;
+  }
+}
+
+class StringFilter {
+  constructor() {
+    this._dep = new Tracker.Dependency();
+    this.subField = ''; // Prevent name mangling in Filter
+    this._filter = '';
+  }
+
+  set(str) {
+    this._filter = str;
+    this._dep.changed();
+  }
+
+  reset() {
+    this._filter = '';
+    this._dep.changed();
+  }
+
+  _isActive() {
+    this._dep.depend();
+    return this._filter !== '';
+  }
+
+  _getMongoSelector() {
+    this._dep.depend();
+    return {$regex : this._filter, $options: 'i'};
+  }
+
+  _getEmptySelector() {
+    this._dep.depend();
+    return {$regex : this._filter, $options: 'i'};
   }
 }
 
@@ -611,6 +646,7 @@ Filter = {
   archive: new SetFilter(),
   hideEmpty: new SetFilter(),
   dueAt: new DateFilter(),
+  title: new StringFilter(),
   customFields: new SetFilter('_id'),
   advanced: new AdvancedFilter(),
   lists: new AdvancedFilter(), // we need the ability to filter list by name as well
@@ -622,6 +658,7 @@ Filter = {
     'archive',
     'hideEmpty',
     'dueAt',
+    'title',
     'customFields',
   ],
 
@@ -647,9 +684,11 @@ Filter = {
     const filterSelector = {};
     const emptySelector = {};
     let includeEmptySelectors = false;
+    let isFilterActive = false; // we don't want there is only Filter.lists
     this._fields.forEach(fieldName => {
       const filter = this[fieldName];
       if (filter._isActive()) {
+        isFilterActive = true;
         if (filter.subField !== '') {
           filterSelector[
             `${fieldName}.${filter.subField}`
@@ -680,12 +719,23 @@ Filter = {
     )
       selectors.push(filterSelector);
     if (includeEmptySelectors) selectors.push(emptySelector);
-    if (this.advanced._isActive())
+    if (this.advanced._isActive()) {
+      isFilterActive = true;
       selectors.push(this.advanced._getMongoSelector());
+    }
 
-    return {
-      $or: selectors,
-    };
+    if(isFilterActive) {
+      return {
+        $or: selectors,
+      };
+    }
+    else {
+      // we don't want there is only Filter.lists
+      // otherwise no card will be displayed ...
+      // selectors = [exceptionsSelector];
+      // will return [{"_id":{"$in":[]}}]
+      return {};
+    }
   },
 
   mongoSelector(additionalSelector) {

@@ -1,4 +1,10 @@
+import moment from 'moment/min/moment-with-locales';
 const Papa = require('papaparse');
+import { TAPi18n } from '/imports/i18n';
+
+//const stringify = require('csv-stringify');
+
+//const stringify = require('csv-stringify');
 
 // exporter maybe is broken since Gridfs introduced, add fs and path
 export class Exporter {
@@ -78,11 +84,11 @@ export class Exporter {
 
         return {
           _id: attachment._id,
-          cardId: attachment.cardId,
+          cardId: attachment.meta.cardId,
           //url: FlowRouter.url(attachment.url()),
           file: filebase64,
-          name: attachment.original.name,
-          type: attachment.original.type,
+          name: attachment.name,
+          type: attachment.type,
         };
       });
     //When has a especific valid attachment return the single element
@@ -197,65 +203,43 @@ export class Exporter {
     return result;
   }
 
-  buildCsv(delimiter = ',') {
+  buildCsv(userDelimiter = ',', userLanguage='en') {
     const result = this.build();
     const columnHeaders = [];
     const cardRows = [];
 
     const papaconfig = {
-      delimiter, // get parameter (was: auto-detect)
-      worker: true,
-    };
-
-    /*
-      newline: "",	// auto-detect
+      quotes: true,
       quoteChar: '"',
       escapeChar: '"',
+      delimiter: userDelimiter,
       header: true,
-      transformHeader: undefined,
-      dynamicTyping: false,
-      preview: 0,
-      encoding: "",
-      comments: false,
-      step: undefined,
-      complete: undefined,
-      error: undefined,
-      download: false,
-      downloadRequestHeaders: undefined,
-      downloadRequestBody: undefined,
+      newline: "\r\n",
       skipEmptyLines: false,
-      chunk: undefined,
-      chunkSize: undefined,
-      fastMode: undefined,
-      beforeFirstChunk: undefined,
-      withCredentials: undefined,
-      transform: undefined
+      escapeFormulae: true,
     };
-    */
-
-    //delimitersToGuess: [',', '\t', '|', ';', Papa.RECORD_SEP, Papa.UNIT_SEP]
 
     columnHeaders.push(
-      'Title',
-      'Description',
-      'Status',
-      'Swimlane',
-      'Owner',
-      'Requested by',
-      'Assigned by',
-      'Members',
-      'Assignees',
-      'Labels',
-      'Start at',
-      'Due at',
-      'End at',
-      'Over time',
-      'Spent time (hours)',
-      'Created at',
-      'Last modified at',
-      'Last activity',
-      'Vote',
-      'Archived',
+      TAPi18n.__('title','',userLanguage),
+      TAPi18n.__('description','',userLanguage),
+      TAPi18n.__('list','',userLanguage),
+      TAPi18n.__('swimlane','',userLanguage),
+      TAPi18n.__('owner','',userLanguage),
+      TAPi18n.__('requested-by','',userLanguage),
+      TAPi18n.__('assigned-by','',userLanguage),
+      TAPi18n.__('members','',userLanguage),
+      TAPi18n.__('assignee','',userLanguage),
+      TAPi18n.__('labels','',userLanguage),
+      TAPi18n.__('card-start','',userLanguage),
+      TAPi18n.__('card-due','',userLanguage),
+      TAPi18n.__('card-end','',userLanguage),
+      TAPi18n.__('overtime-hours','',userLanguage),
+      TAPi18n.__('spent-time-hours','',userLanguage),
+      TAPi18n.__('createdAt','',userLanguage),
+      TAPi18n.__('last-modified-at','',userLanguage),
+      TAPi18n.__('last-activity','',userLanguage),
+      TAPi18n.__('voting','',userLanguage),
+      TAPi18n.__('archived','',userLanguage),
     );
     const customFieldMap = {};
     let i = 0;
@@ -283,30 +267,8 @@ export class Exporter {
       }
       i++;
     });
-    cardRows.push([[columnHeaders]]);
-    /* TODO: Try to get translations working.
-             These currently only bring English translations.
-    TAPi18n.__('title'),
-    TAPi18n.__('description'),
-    TAPi18n.__('status'),
-    TAPi18n.__('swimlane'),
-    TAPi18n.__('owner'),
-    TAPi18n.__('requested-by'),
-    TAPi18n.__('assigned-by'),
-    TAPi18n.__('members'),
-    TAPi18n.__('assignee'),
-    TAPi18n.__('labels'),
-    TAPi18n.__('card-start'),
-    TAPi18n.__('card-due'),
-    TAPi18n.__('card-end'),
-    TAPi18n.__('overtime-hours'),
-    TAPi18n.__('spent-time-hours'),
-    TAPi18n.__('createdAt'),
-    TAPi18n.__('last-modified-at'),
-    TAPi18n.__('last-activity'),
-    TAPi18n.__('voting'),
-    TAPi18n.__('archived'),
-    */
+    //cardRows.push([[columnHeaders]]);
+    cardRows.push(columnHeaders);
 
     result.cards.forEach((card) => {
       const currentRow = [];
@@ -409,7 +371,8 @@ export class Exporter {
           currentRow.push(customFieldValuesToPush[valueIndex]);
         }
       }
-      cardRows.push([[currentRow]]);
+      //cardRows.push([[currentRow]]);
+      cardRows.push(currentRow);
     });
 
     return Papa.unparse(cardRows, papaconfig);

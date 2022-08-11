@@ -2,6 +2,7 @@ const orgsPerPage = 25;
 const teamsPerPage = 25;
 const usersPerPage = 25;
 let userOrgsTeamsAction = ""; //poosible actions 'addOrg', 'addTeam', 'removeOrg' or 'removeTeam' when adding or modifying a user
+let selectedUserChkBoxUserIds = [];
 
 BlazeComponent.extendComponent({
   mixins() {
@@ -81,6 +82,9 @@ BlazeComponent.extendComponent({
         'click #searchButton'() {
           this.filterPeople();
         },
+        'click #addOrRemoveTeam'(){
+          document.getElementById("divAddOrRemoveTeamContainer").style.display = 'block';
+        },
         'keydown #searchInput'(event) {
           if (event.keyCode === 13 && !event.shiftKey) {
             this.filterPeople();
@@ -140,6 +144,7 @@ BlazeComponent.extendComponent({
   },
   orgList() {
     const orgs = Org.find(this.findOrgsOptions.get(), {
+      sort: { orgDisplayName: 1 },
       fields: { _id: true },
     });
     this.numberOrgs.set(orgs.count(false));
@@ -147,6 +152,7 @@ BlazeComponent.extendComponent({
   },
   teamList() {
     const teams = Team.find(this.findTeamsOptions.get(), {
+      sort: { teamDisplayName: 1 },
       fields: { _id: true },
     });
     this.numberTeams.set(teams.count(false));
@@ -154,6 +160,7 @@ BlazeComponent.extendComponent({
   },
   peopleList() {
     const users = Users.find(this.findUsersOptions.get(), {
+      sort: { username: 1 },
       fields: { _id: true },
     });
     this.numberPeople.set(users.count(false));
@@ -183,22 +190,19 @@ BlazeComponent.extendComponent({
 
 Template.orgRow.helpers({
   orgData() {
-    const orgCollection = this.esSearch ? ESSearchResults : Org;
-    return orgCollection.findOne(this.orgId);
+    return Org.findOne(this.orgId);
   },
 });
 
 Template.teamRow.helpers({
   teamData() {
-    const teamCollection = this.esSearch ? ESSearchResults : Team;
-    return teamCollection.findOne(this.teamId);
+    return Team.findOne(this.teamId);
   },
 });
 
 Template.peopleRow.helpers({
   userData() {
-    const userCollection = this.esSearch ? ESSearchResults : Users;
-    return userCollection.findOne(this.userId);
+    return Users.findOne(this.userId);
   },
 });
 
@@ -247,10 +251,10 @@ Template.editUserPopup.helpers({
     return Template.instance().authenticationMethods.get();
   },
   orgsDatas() {
-    return Org.find({}, {sort: { createdAt: -1 }});
+    return Org.find({}, {sort: { orgDisplayName: 1 }});
   },
   teamsDatas() {
-    return Team.find({}, {sort: { createdAt: -1 }});
+    return Team.find({}, {sort: { teamDisplayName: 1 }});
   },
   isSelected(match) {
     const userId = Template.instance().data.userId;
@@ -320,10 +324,10 @@ Template.newUserPopup.helpers({
     return Template.instance().authenticationMethods.get();
   },
   orgsDatas() {
-    return Org.find({}, {sort: { createdAt: -1 }});
+    return Org.find({}, {sort: { orgDisplayName: 1 }});
   },
   teamsDatas() {
-    return Team.find({}, {sort: { createdAt: -1 }});
+    return Team.find({}, {sort: { teamDisplayName: 1 }});
   },
   isSelected(match) {
     const userId = Template.instance().data.userId;
@@ -385,10 +389,110 @@ BlazeComponent.extendComponent({
       {
         'click a.edit-user': Popup.open('editUser'),
         'click a.more-settings-user': Popup.open('settingsUser'),
+        'click .selectUserChkBox': function(ev){
+            if(ev.currentTarget){
+              if(ev.currentTarget.checked){
+                if(!selectedUserChkBoxUserIds.includes(ev.currentTarget.id)){
+                  selectedUserChkBoxUserIds.push(ev.currentTarget.id);
+                }
+              }
+              else{
+                if(selectedUserChkBoxUserIds.includes(ev.currentTarget.id)){
+                  let index = selectedUserChkBoxUserIds.indexOf(ev.currentTarget.id);
+                  if(index > -1)
+                    selectedUserChkBoxUserIds.splice(index, 1);
+                }
+              }
+            }
+            if(selectedUserChkBoxUserIds.length > 0)
+              document.getElementById("divAddOrRemoveTeam").style.display = 'block';
+            else
+              document.getElementById("divAddOrRemoveTeam").style.display = 'none';
+        },
       },
     ];
   },
 }).register('peopleRow');
+
+BlazeComponent.extendComponent({
+  onCreated() {},
+  teamsDatas() {
+    return Team.find({}, {sort: { teamDisplayName: 1 }});
+  },
+  events() {
+    return [
+      {
+        'click #cancelBtn': function(){
+          let selectedElt = document.getElementById("jsteamsUser");
+          document.getElementById("divAddOrRemoveTeamContainer").style.display = 'none';
+        },
+        'click #addTeamBtn': function(){
+          let selectedElt;
+          let selectedEltValue;
+          let selectedEltValueId;
+          let userTms = [];
+          let currentUser;
+          let currUserTeamIndex;
+
+          selectedElt = document.getElementById("jsteamsUser");
+          selectedEltValue = selectedElt.options[selectedElt.selectedIndex].text;
+          selectedEltValueId = selectedElt.options[selectedElt.selectedIndex].value;
+
+          if(document.getElementById('addAction').checked){
+            for(let i = 0; i < selectedUserChkBoxUserIds.length; i++){
+              currentUser = Users.findOne(selectedUserChkBoxUserIds[i]);
+              userTms = currentUser.teams;
+              if(userTms == undefined || userTms.length == 0){
+                userTms = [];
+                userTms.push({
+                  "teamId": selectedEltValueId,
+                  "teamDisplayName": selectedEltValue,
+                })
+              }
+              else if(userTms.length > 0)
+              {
+                currUserTeamIndex = userTms.findIndex(function(t){ return t.teamId == selectedEltValueId});
+                if(currUserTeamIndex == -1){
+                  userTms.push({
+                    "teamId": selectedEltValueId,
+                    "teamDisplayName": selectedEltValue,
+                  });
+                }
+              }
+
+              Users.update(selectedUserChkBoxUserIds[i], {
+                $set:{
+                  teams: userTms
+                }
+              });
+            }
+          }
+          else{
+            for(let i = 0; i < selectedUserChkBoxUserIds.length; i++){
+              currentUser = Users.findOne(selectedUserChkBoxUserIds[i]);
+              userTms = currentUser.teams;
+              if(userTms !== undefined || userTms.length > 0)
+              {
+                currUserTeamIndex = userTms.findIndex(function(t){ return t.teamId == selectedEltValueId});
+                if(currUserTeamIndex != -1){
+                  userTms.splice(currUserTeamIndex, 1);
+                }
+              }
+
+              Users.update(selectedUserChkBoxUserIds[i], {
+                $set:{
+                  teams: userTms
+                }
+              });
+            }
+          }
+
+          document.getElementById("divAddOrRemoveTeamContainer").style.display = 'none';
+        },
+      },
+    ];
+  },
+}).register('modifyTeamsUsers');
 
 BlazeComponent.extendComponent({
   events() {
@@ -420,6 +524,41 @@ BlazeComponent.extendComponent({
   },
 }).register('newUserRow');
 
+BlazeComponent.extendComponent({
+  events() {
+    return [
+      {
+        'click .allUserChkBox': function(ev){
+          selectedUserChkBoxUserIds = [];
+          const checkboxes = document.getElementsByClassName("selectUserChkBox");
+          if(ev.currentTarget){
+            if(ev.currentTarget.checked){
+              for (let i=0; i<checkboxes.length; i++) {
+                if (!checkboxes[i].disabled) {
+                 selectedUserChkBoxUserIds.push(checkboxes[i].id);
+                 checkboxes[i].checked = true;
+                }
+             }
+            }
+            else{
+              for (let i=0; i<checkboxes.length; i++) {
+                if (!checkboxes[i].disabled) {
+                 checkboxes[i].checked = false;
+                }
+             }
+            }
+          }
+
+          if(selectedUserChkBoxUserIds.length > 0)
+            document.getElementById("divAddOrRemoveTeam").style.display = 'block';
+          else
+            document.getElementById("divAddOrRemoveTeam").style.display = 'none';
+        },
+      },
+    ];
+  },
+}).register('selectAllUser');
+
 Template.editOrgPopup.events({
   submit(event, templateInstance) {
     event.preventDefault();
@@ -431,8 +570,7 @@ Template.editOrgPopup.events({
     const orgDesc = templateInstance.find('.js-orgDesc').value.trim();
     const orgShortName = templateInstance.find('.js-orgShortName').value.trim();
     const orgWebsite = templateInstance.find('.js-orgWebsite').value.trim();
-    const orgIsActive =
-      templateInstance.find('.js-org-isactive').value.trim() == 'true';
+    const orgIsActive = templateInstance.find('.js-org-isactive').value.trim() == 'true';
 
     const isChangeOrgDisplayName = orgDisplayName !== org.orgDisplayName;
     const isChangeOrgDesc = orgDesc !== org.orgDesc;
@@ -458,7 +596,7 @@ Template.editOrgPopup.events({
       );
     }
 
-    Popup.close();
+    Popup.back();
   },
 });
 
@@ -502,7 +640,7 @@ Template.editTeamPopup.events({
       );
     }
 
-    Popup.close();
+    Popup.back();
   },
 });
 
@@ -551,12 +689,15 @@ Template.editUserPopup.events({
     let userTeamsList = userTeams.split(",");
     let userTeamsIdsList = userTeamsIds.split(",");
     let userTms = [];
-    for(let i = 0; i < userTeamsList.length; i++){
-      userTms.push({
-        "teamId": userTeamsIdsList[i],
-        "teamDisplayName": userTeamsList[i],
-      })
+    if(userTeams != ''){
+      for(let i = 0; i < userTeamsList.length; i++){
+        userTms.push({
+          "teamId": userTeamsIdsList[i],
+          "teamDisplayName": userTeamsList[i],
+        })
+      }
     }
+
     Users.update(this.userId, {
       $set:{
         teams: userTms
@@ -566,12 +707,15 @@ Template.editUserPopup.events({
     let userOrgsList = userOrgs.split(",");
     let userOrgsIdsList = userOrgsIds.split(",");
     let userOrganizations = [];
-    for(let i = 0; i < userOrgsList.length; i++){
-      userOrganizations.push({
-        "orgId": userOrgsIdsList[i],
-        "orgDisplayName": userOrgsList[i],
-      })
+    if(userOrgs != ''){
+      for(let i = 0; i < userOrgsList.length; i++){
+        userOrganizations.push({
+          "orgId": userOrgsIdsList[i],
+          "orgDisplayName": userOrgsList[i],
+        })
+      }
     }
+
     Users.update(this.userId, {
       $set:{
         orgs: userOrganizations
@@ -611,7 +755,7 @@ Template.editUserPopup.events({
           } else {
             usernameMessageElement.hide();
             emailMessageElement.hide();
-            Popup.close();
+            Popup.back();
           }
         },
       );
@@ -625,7 +769,7 @@ Template.editUserPopup.events({
           }
         } else {
           usernameMessageElement.hide();
-          Popup.close();
+          Popup.back();
         }
       });
     } else if (isChangeEmail) {
@@ -642,11 +786,11 @@ Template.editUserPopup.events({
             }
           } else {
             emailMessageElement.hide();
-            Popup.close();
+            Popup.back();
           }
         },
       );
-    } else Popup.close();
+    } else Popup.back();
   },
   'click #addUserOrg'(event) {
     event.preventDefault();
@@ -724,7 +868,7 @@ UpdateUserOrgsOrTeamsElement = function(isNewUser = false){
     lstInputValuesIds = [];
   }
   index = lstInputValues.indexOf(selectedEltValue);
-  indexId = lstInputValuesIds.indexOf(selectedEltValue);
+  indexId = lstInputValuesIds.indexOf(selectedEltValueId);
   if(userOrgsTeamsAction == "addOrg" || userOrgsTeamsAction == "addTeam"){
     if(index <= -1 && selectedEltValueId != "-1"){
       lstInputValues.push(selectedEltValue);
@@ -781,7 +925,7 @@ Template.newOrgPopup.events({
       orgWebsite,
       orgIsActive,
     );
-    Popup.close();
+    Popup.back();
   },
 });
 
@@ -807,7 +951,7 @@ Template.newTeamPopup.events({
       teamWebsite,
       teamIsActive,
     );
-    Popup.close();
+    Popup.back();
   },
 });
 
@@ -833,20 +977,24 @@ Template.newUserPopup.events({
     let userTeamsIdsList = userTeamsIds.split(",");
     let userTms = [];
     for(let i = 0; i < userTeamsList.length; i++){
-      userTms.push({
-        "teamId": userTeamsIdsList[i],
-        "teamDisplayName": userTeamsList[i],
-      })
+      if(!!userTeamsIdsList[i] && !!userTeamsList[i]) {
+        userTms.push({
+          "teamId": userTeamsIdsList[i],
+          "teamDisplayName": userTeamsList[i],
+        })
+      }
     }
 
     let userOrgsList = userOrgs.split(",");
     let userOrgsIdsList = userOrgsIds.split(",");
     let userOrganizations = [];
     for(let i = 0; i < userOrgsList.length; i++){
-      userOrganizations.push({
-        "orgId": userOrgsIdsList[i],
-        "orgDisplayName": userOrgsList[i],
-      })
+      if(!!userOrgsIdsList[i] && !!userOrgsList[i]) {
+        userOrganizations.push({
+          "orgId": userOrgsIdsList[i],
+          "orgDisplayName": userOrgsList[i],
+        })
+      }
     }
 
     Meteor.call(
@@ -876,11 +1024,11 @@ Template.newUserPopup.events({
         } else {
           usernameMessageElement.hide();
           emailMessageElement.hide();
-          Popup.close();
+          Popup.back();
         }
       },
     );
-    Popup.close();
+    Popup.back();
   },
   'click #addUserOrgNewUser'(event) {
     event.preventDefault();
@@ -923,16 +1071,36 @@ Template.newUserPopup.events({
 Template.settingsOrgPopup.events({
   'click #deleteButton'(event) {
     event.preventDefault();
+    if(Users.find({"orgs.orgId": this.orgId}).count() > 0)
+    {
+      let orgClassList = document.getElementById("deleteOrgWarningMessage").classList;
+      if(orgClassList.contains('hide'))
+      {
+        orgClassList.remove('hide');
+        document.getElementById("deleteOrgWarningMessage").style.color = "red";
+      }
+      return;
+    }
     Org.remove(this.orgId);
-    Popup.close();
+    Popup.back();
   }
 });
 
 Template.settingsTeamPopup.events({
   'click #deleteButton'(event) {
     event.preventDefault();
+    if(Users.find({"teams.teamId": this.teamId}).count() > 0)
+    {
+      let teamClassList = document.getElementById("deleteTeamWarningMessage").classList;
+      if(teamClassList.contains('hide'))
+      {
+        teamClassList.remove('hide');
+        document.getElementById("deleteTeamWarningMessage").style.color = "red";
+      }
+      return;
+    }
     Team.remove(this.teamId);
-    Popup.close();
+    Popup.back();
   }
 });
 
@@ -949,10 +1117,13 @@ Template.settingsUserPopup.events({
   },
   'click #deleteButton'(event) {
     event.preventDefault();
+    Users.remove(this.userId);
     /*
-    // Delete is not enabled yet, because it does leave empty user avatars
-    // to boards: boards members, card members and assignees have
-    // empty users. See:
+    // Delete user is enabled, but you should remove user from all boards
+    // before deleting user, because there is possibility of leaving empty user avatars
+    // to boards. You can remove non-existing user ids manually from database,
+    // if that happens.
+    //. See:
     // - wekan/client/components/settings/peopleBody.jade deleteButton
     // - wekan/client/components/settings/peopleBody.js deleteButton
     // - wekan/client/components/sidebar/sidebar.js Popup.afterConfirm('removeMember'
@@ -960,9 +1131,9 @@ Template.settingsUserPopup.events({
     //   but that should be used to remove user from all boards similarly
     // - wekan/models/users.js Delete is not enabled
     //
-    //Users.remove(this.userId);
+    //
     */
-    Popup.close();
+    Popup.back();
   },
 });
 

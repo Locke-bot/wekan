@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { TAPi18n } from '/imports/i18n';
 
 const activitiesPerPage = 500;
 
@@ -13,14 +14,14 @@ BlazeComponent.extendComponent({
     this.autorun(() => {
       let mode = this.data().mode;
       const capitalizedMode = Utils.capitalize(mode);
-      let thisId, searchId;
+      let searchId;
       if (mode === 'linkedcard' || mode === 'linkedboard') {
-        thisId = Session.get('currentCard');
-        searchId = Cards.findOne({ _id: thisId }).linkedId;
+        searchId = Utils.getCurrentCard().linkedId;
         mode = mode.replace('linked', '');
+      } else if (mode === 'card') {
+        searchId = Utils.getCurrentCardId();
       } else {
-        thisId = Session.get(`current${capitalizedMode}`);
-        searchId = thisId;
+        searchId = Session.get(`current${capitalizedMode}`);
       }
       const limit = this.page.get() * activitiesPerPage;
       const user = Meteor.user();
@@ -54,6 +55,13 @@ BlazeComponent.extendComponent({
   },
 }).register('activities');
 
+Template.activities.helpers({
+  activities() {
+    const ret = this.card.activities();
+    return ret;
+  },
+});
+
 BlazeComponent.extendComponent({
   checkItem() {
     const checkItemId = this.currentData().activity.checklistItemId;
@@ -63,22 +71,51 @@ BlazeComponent.extendComponent({
 
   boardLabelLink() {
     const data = this.currentData();
+    const currentBoardId = Session.get('currentBoard');
     if (data.mode !== 'board') {
-      return createBoardLink(data.activity.board(), data.activity.listName);
+      // data.mode: card, linkedcard, linkedboard
+      return createBoardLink(data.activity.board(), data.activity.listName ? data.activity.listName : null);
+    }
+    else if (currentBoardId != data.activity.boardId) {
+      // data.mode: board
+      // current activitie is linked
+      return createBoardLink(data.activity.board(), data.activity.listName ? data.activity.listName : null);
     }
     return TAPi18n.__('this-board');
   },
 
   cardLabelLink() {
     const data = this.currentData();
-    if (data.mode !== 'card') {
-      return createCardLink(data.activity.card());
+    const currentBoardId = Session.get('currentBoard');
+    if (data.mode == 'card') {
+      // data.mode: card
+      return TAPi18n.__('this-card');
     }
-    return TAPi18n.__('this-card');
+    else if (data.mode !== 'board') {
+      // data.mode: linkedcard, linkedboard
+      return createCardLink(data.activity.card(), null);
+    }
+    else if (currentBoardId != data.activity.boardId) {
+      // data.mode: board
+      // current activitie is linked
+      return createCardLink(data.activity.card(), data.activity.board().title);
+    }
+    return createCardLink(this.currentData().activity.card(), null);
   },
 
   cardLink() {
-    return createCardLink(this.currentData().activity.card());
+    const data = this.currentData();
+    const currentBoardId = Session.get('currentBoard');
+    if (data.mode !== 'board') {
+      // data.mode: card, linkedcard, linkedboard
+      return createCardLink(data.activity.card(), null);
+    }
+    else if (currentBoardId != data.activity.boardId) {
+      // data.mode: board
+      // current activitie is linked
+      return createCardLink(data.activity.card(), data.activity.board().title);
+    }
+    return createCardLink(this.currentData().activity.card(), null);
   },
 
   receivedDate() {
@@ -113,8 +150,10 @@ BlazeComponent.extendComponent({
     ).getLabelById(lastLabelId);
     if (lastLabel && (lastLabel.name === undefined || lastLabel.name === '')) {
       return lastLabel.color;
-    } else {
+    } else if (lastLabel.name !== undefined && lastLabel.name !== '') {
       return lastLabel.name;
+    } else {
+      return null;
     }
   },
 
@@ -187,14 +226,14 @@ BlazeComponent.extendComponent({
     // trying to display url before file is stored generates js errors
     return (
       (attachment &&
-        attachment.url({ download: true }) &&
+        attachment.path &&
         Blaze.toHTML(
           HTML.A(
             {
-              href: attachment.url({ download: true }),
+              href: `${attachment.link()}?download=true`,
               target: '_blank',
             },
-            DOMPurify.sanitize(attachment.name()),
+            DOMPurify.sanitize(attachment.name),
           ),
         )) ||
       DOMPurify.sanitize(this.currentData().activity.attachmentName)
@@ -211,10 +250,11 @@ BlazeComponent.extendComponent({
     return [
       {
         // XXX We should use Popup.afterConfirmation here
-        'click .js-delete-comment'() {
-          const commentId = this.currentData().activity.commentId;
+        'click .js-delete-comment': Popup.afterConfirm('deleteComment', () => {
+          const commentId = this.data().activity.commentId;
           CardComments.remove(commentId);
-        },
+          Popup.back();
+        }),
         'submit .js-edit-comment'(evt) {
           evt.preventDefault();
           const commentText = this.currentComponent()
@@ -240,8 +280,64 @@ Template.activity.helpers({
   },
 });
 
-function createCardLink(card) {
+Template.commentReactions.events({
+  'click .reaction'(event) {
+    if (Meteor.user().isBoardMember()) {
+      const codepoint = event.currentTarget.dataset['codepoint'];
+      const commentId = Template.instance().data.commentId;
+      const cardComment = CardComments.findOne({_id: commentId});
+      cardComment.toggleReaction(codepoint);
+    }
+  },
+  'click .open-comment-reaction-popup': Popup.open('addReaction'),
+})
+
+Template.addReactionPopup.events({
+  'click .add-comment-reaction'(event) {
+    if (Meteor.user().isBoardMember()) {
+      const codepoint = event.currentTarget.dataset['codepoint'];
+      const commentId = Template.instance().data.commentId;
+      const cardComment = CardComments.findOne({_id: commentId});
+      cardComment.toggleReaction(codepoint);
+    }
+    Popup.back();
+  },
+})
+
+Template.addReactionPopup.helpers({
+  codepoints() {
+    // Starting set of unicode codepoints as comment reactions
+    return [
+      '&#128077;',
+      '&#128078;',
+      '&#128064;',
+      '&#9989;',
+      '&#10060;',
+      '&#128591;',
+      '&#128079;',
+      '&#127881;',
+      '&#128640;',
+      '&#128522;',
+      '&#129300;',
+      '&#128532;'];
+  }
+})
+
+Template.commentReactions.helpers({
+  isSelected(userIds) {
+    return userIds.includes(Meteor.user()._id);
+  },
+  userNames(userIds) {
+    return Users.find({_id: {$in: userIds}})
+                .map(user => user.profile.fullname)
+                .join(', ');
+  }
+})
+
+function createCardLink(card, board) {
   if (!card) return '';
+  let text = card.title;
+  if (board) text = `${board} > ` + text;
   return (
     card &&
     Blaze.toHTML(
@@ -250,7 +346,7 @@ function createCardLink(card) {
           href: card.originRelativeUrl(),
           class: 'action-card',
         },
-        DOMPurify.sanitize(card.title, { ALLOW_UNKNOWN_PROTOCOLS: true }),
+        DOMPurify.sanitize(text, { ALLOW_UNKNOWN_PROTOCOLS: true }),
       ),
     )
   );
